@@ -19,44 +19,50 @@ CREATE TABLE StagingTable(
     tolls_amount VARCHAR(50),
     improvement_surcharge VARCHAR(50),
     total_amount VARCHAR(50),
-    congestion_surcharge VARCHAR(50),
-);--create staging table that loads the data from the chosen csv file
---IMPORT CSV
-LOAD DATA LOCAL INFILE 'path/to/taxi_trip_data.csv'
+    congestion_surcharge VARCHAR(50)
+);
+
+-- create staging table that loads the data from the chosen csv file
+-- IMPORT CSV
+LOAD DATA LOCAL INFILE 'C:/Users/steve/Projects/big_data_tech_assignment_1/data.csv'
 INTO TABLE StagingTable
 FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 ROWS;
-SELECT COUNT(*) FROM StagingTable; --check the number of records loaded into the staging table
---CLEAN UP DATA
+LINES TERMINATED BY '\r\n'
+IGNORE 1 ROWS (VendorID, tpep_pickup_datetime, tpep_dropoff_datetime, passenger_count, trip_distance,
+               RatecodeID, store_and_fwd_flag, PULocationID, DOLocationID, payment_type, fare_amount, extra, mta_tax,
+               tip_amount, tolls_amount, improvement_surcharge, total_amount, congestion_surcharge);
+SELECT COUNT(*) FROM StagingTable; -- check the number of records loaded into the staging table
+
+-- CLEAN UP DATA
 UPDATE StagingTable
 SET tpep_pickup_datetime  = REPLACE(TRIM(tpep_pickup_datetime),  '  ', ' '),
 tpep_dropoff_datetime = REPLACE(TRIM(tpep_dropoff_datetime), '  ', ' '),
 congestion_surcharge  = TRIM(REPLACE(congestion_surcharge, '\r', ''));
 DELETE FROM StagingTable 
 WHERE tpep_pickup_datetime IS NULL OR tpep_pickup_datetime  = '' OR
-tpep_dropoff_datetime IS NULL ORtpep_dropoff_datetime = '' OR
+tpep_dropoff_datetime IS NULL OR tpep_dropoff_datetime = '' OR
 PULocationID IS NULL OR PULocationID = '' OR
 DOLocationID IS NULL OR DOLocationID = '' OR
 trip_distance IS NULL OR trip_distance = '' OR
 fare_amount IS NULL OR fare_amount = '' OR
-total_amount IS NULL OR total_amount = '';--REMOVING EMPTY OR NULL ROWS
---POPULATE TABLES
+total_amount IS NULL OR total_amount = ''; -- REMOVING EMPTY OR NULL ROWS
+
+-- POPULATE TABLES
 INSERT INTO VENDOR(vendor_id, vendor_name)
-SELECT DISTINCT CAST (VendorID AS UNSIGNED),'UNKNOWN'
+SELECT DISTINCT CAST(VendorID AS UNSIGNED),'UNKNOWN'
 FROM StagingTable
 WHERE VendorID <>'';
-UPDATE VENDOR SET vendor_name = CASE VendorID
+UPDATE VENDOR SET vendor_name = CASE vendor_id
     WHEN '1' THEN 'Creative Mobile Technologies, LLC'
     WHEN '2' THEN 'VeriFone Inc.'
     ELSE 'UNKNOWN'
 END;
 
-INSERT INTO RATE_CODE (rate_code_id, rate_code_description)
-SELECT DISTINCT CAST (RatecodeID AS UNSIGNED), 'UNKNOWN'
+INSERT INTO RATE_CODE (ratecode_id, rate_description)
+SELECT DISTINCT CAST(RatecodeID AS UNSIGNED), 'UNKNOWN'
 FROM StagingTable
 WHERE RatecodeID <>'';
-UPDATE RATE_CODE SET rate_code_description = CASE RatecodeID
+UPDATE RATE_CODE SET rate_description = CASE ratecode_id
     WHEN '1' THEN 'Standard rate'
     WHEN '2' THEN 'JFK'
     WHEN '3' THEN 'Newark'
@@ -66,11 +72,11 @@ UPDATE RATE_CODE SET rate_code_description = CASE RatecodeID
     ELSE 'UNKNOWN'
 END;
 
-INSERT INTO PAYMENT_TYPE (payment_type_id, payment_type_description)
-SELECT DISTINCT CAST (payment_type AS UNSIGNED), 'UNKNOWN'
+INSERT INTO PAYMENT_TYPE (payment_type_id, payment_description)
+SELECT DISTINCT CAST(payment_type AS UNSIGNED), 'UNKNOWN'
 FROM StagingTable
 WHERE payment_type <>'';
-UPDATE PAYMENT_TYPE SET payment_type_description = CASE payment_type_id
+UPDATE PAYMENT_TYPE SET payment_description = CASE payment_type_id
     WHEN '1' THEN 'Credit card'
     WHEN '2' THEN 'Cash'
     WHEN '3' THEN 'No charge'
@@ -81,13 +87,13 @@ UPDATE PAYMENT_TYPE SET payment_type_description = CASE payment_type_id
 END;
 
 INSERT INTO LOCATION (location_id)
-SELECT CAST (PULocationID AS UNSIGNED) FROM StagingTable
-UNION --needs every ID from pickup and dropoff. removes duplicates
-SELECT CAST (DOLocationID AS UNSIGNED) FROM StagingTable
+SELECT CAST(PULocationID AS UNSIGNED) FROM StagingTable
+UNION -- needs every ID from pickup and dropoff. removes duplicates
+SELECT CAST(DOLocationID AS UNSIGNED) FROM StagingTable;
 
 INSERT INTO TRIP (trip_id, vendor_id,ratecode_id, passenger_count, trip_distance, store_and_fwd_flag)
 SELECT staging_id,
-CAST (NULLIF(VendorID, '')AS UNSIGNED),
+CAST(NULLIF(VendorID, '')AS UNSIGNED),
 CAST(NULLIF(RatecodeID, '')AS UNSIGNED),
 CAST(NULLIF(passenger_count, '')AS UNSIGNED),
 CAST(NULLIF(trip_distance, '')AS DECIMAL(10,2)),
@@ -96,12 +102,12 @@ FROM StagingTable;
 
 INSERT INTO TRIP_STOP(trip_id, stop_type, stop_datetime, location_id)
 SELECT staging_id, 'P',
-STR_TO_DATE(tpep_pickup_datetime,' %m/%d/%Y %r'),
+STR_TO_DATE(tpep_pickup_datetime,'%Y-%m-%d %H:%i:%s'),
 CAST(PULocationID AS UNSIGNED)
 FROM StagingTable;
 INSERT INTO TRIP_STOP(trip_id, stop_type, stop_datetime, location_id)
 SELECT staging_id, 'D',
-STR_TO_DATE(tpep_dropoff_datetime,' %m/%d/%Y %r'),
+STR_TO_DATE(tpep_dropoff_datetime,'%Y-%m-%d %H:%i:%s'),
 CAST(DOLocationID AS UNSIGNED)
 FROM StagingTable;
 
@@ -116,21 +122,24 @@ CAST(COALESCE(NULLIF(tolls_amount,''),0) AS DECIMAL(10,2)),
 CAST(COALESCE(NULLIF(improvement_surcharge,''),0) AS DECIMAL(10,2)),
 CAST(COALESCE(NULLIF(congestion_surcharge,''),0) AS DECIMAL(10,2)),
 CAST(total_amount AS DECIMAL(10,2))
-FROM StaginTable;
---VALIDATE DATA
+FROM StagingTable;
+
+-- VALIDATE DATA
 SELECT 'staging' AS tbl, COUNT(*) FROM StagingTable
 UNION ALL SELECT 'trip', COUNT(*) FROM TRIP
 UNION ALL SELECT 'trip_stop', COUNT(*) FROM TRIP_STOP
 UNION ALL SELECT 'payment', COUNT(*) FROM PAYMENT
 UNION ALL SELECT 'vendor', COUNT(*) FROM VENDOR
 UNION ALL SELECT 'location', COUNT(*) FROM LOCATION;
---ORPHAN CHECK (SHOULD RETURN 0)
+
+-- ORPHAN CHECK (SHOULD RETURN 0)
 SELECT COUNT(*) FROM TRIP t LEFT JOIN VENDOR v ON t.vendor_id = v.vendor_id 
 WHERE t.vendor_id IS NOT NULL AND v.vendor_id IS NULL;
-SELECT COUNT(*) FROM TRIP_STOP ts LEFT JOIN LOCATION 1 ON ts.location_id = l.location_id
+SELECT COUNT(*) FROM TRIP_STOP ts LEFT JOIN LOCATION l ON ts.location_id = l.location_id
 WHERE  l.location_id IS NULL;
---SPOT CHECK
-SELECTSELECT t.trip_id, v.vendor_name, ts.stop_type, ts.stop_datetime, p.total_amount
+
+-- SPOT CHECK
+SELECT t.trip_id, v.vendor_name, ts.stop_type, ts.stop_datetime, p.total_amount
 FROM TRIP t
 JOIN VENDOR v ON t.vendor_id = v.vendor_id
 JOIN TRIP_STOP ts ON t.trip_id = ts.trip_id
